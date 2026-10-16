@@ -4,14 +4,13 @@ import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.*;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
-import android.graphics.Typeface;
+import android.graphics.*;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.Gravity;
-import android.view.MotionEvent;
-import android.view.View;
+import android.view.*;
 import android.widget.*;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -19,48 +18,504 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
+
     private static final int REQUEST_BT = 41;
-    private static final UUID SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    private static final UUID SPP = UUID.fromString(
+        "00001101-0000-1000-8000-00805F9B34FB"
+    );
+
     private BluetoothAdapter adapter;
     private BluetoothSocket socket;
     private OutputStream output;
-    private Spinner spinner;
-    private TextView status;
+    private Spinner devices;
+    private TextView status, lastCommand;
     private final ArrayList<BluetoothDevice> paired = new ArrayList<>();
     private volatile boolean connected = false;
 
-    @Override public void onCreate(Bundle b) {
-        super.onCreate(b); adapter = BluetoothAdapter.getDefaultAdapter(); buildUi(); refresh();
+    private final int BG = Color.rgb(5, 12, 19);
+    private final int PANEL = Color.rgb(10, 22, 32);
+    private final int BLUE = Color.rgb(0, 174, 255);
+    private final int GREEN = Color.rgb(57, 255, 20);
+    private final int RED = Color.rgb(255, 55, 65);
+    private final int YELLOW = Color.rgb(255, 190, 0);
+
+    @Override
+    public void onCreate(Bundle b) {
+        super.onCreate(b);
+
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        );
+
+        adapter = BluetoothAdapter.getDefaultAdapter();
+        buildUI();
+        refreshDevices();
     }
-    private void buildUi() {
-        LinearLayout root = new LinearLayout(this); root.setOrientation(1); root.setPadding(12,8,12,8); root.setBackgroundColor(Color.rgb(18,24,35));
-        TextView title = label("BT CAR CONTROL"); title.setTextSize(22); title.setTypeface(null,Typeface.BOLD); root.addView(title,new LinearLayout.LayoutParams(-1,38));
-        LinearLayout connectRow = new LinearLayout(this); connectRow.setGravity(Gravity.CENTER_VERTICAL);
-        spinner = new Spinner(this); connectRow.addView(spinner,new LinearLayout.LayoutParams(0,48,1));
-        Button refresh = btn("↻",55,Color.DKGRAY); refresh.setOnClickListener(v->refresh()); connectRow.addView(refresh);
-        Button connect = btn("CONECTAR",125,Color.rgb(0,145,110)); connect.setOnClickListener(v->connect()); connectRow.addView(connect); root.addView(connectRow);
-        status = label("Empareja el HC-05 desde Ajustes Bluetooth"); root.addView(status,new LinearLayout.LayoutParams(-1,28));
-        LinearLayout area = new LinearLayout(this); area.setGravity(Gravity.CENTER); root.addView(area,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout joy = new LinearLayout(this); joy.setOrientation(1); joy.setGravity(Gravity.CENTER); area.addView(joy,new LinearLayout.LayoutParams(0,-1,1)); joy.addView(label("JOYSTICK"));
-        Button up=btn("▲",76,0xff2a6fb4), down=btn("▼",76,0xff2a6fb4), left=btn("◀",76,0xff2a6fb4), right=btn("▶",76,0xff2a6fb4), stop=btn("STOP",76,0xffbe3237);
-        LinearLayout row=row(); row.addView(blank(76)); row.addView(up); row.addView(blank(76)); joy.addView(row);
-        row=row(); row.addView(left); row.addView(stop); row.addView(right); joy.addView(row);
-        row=row(); row.addView(blank(76)); row.addView(down); row.addView(blank(76)); joy.addView(row);
-        hold(up,"F"); hold(down,"B"); hold(left,"L"); hold(right,"R"); stop.setOnClickListener(v->send("S"));
-        LinearLayout dirs = new LinearLayout(this); dirs.setOrientation(1); dirs.setGravity(Gravity.CENTER); area.addView(dirs,new LinearLayout.LayoutParams(0,-1,1)); dirs.addView(label("DIRECCIÓN"));
-        Button f=btn("↑ ADELANTE",170,0xff2a6fb4), b=btn("↓ ATRÁS",170,0xff2a6fb4), l=btn("← IZQUIERDA",140,0xff2a6fb4), r=btn("DERECHA →",140,0xff2a6fb4), s=btn("■ STOP",190,0xffbe3237);
-        row=row(); row.addView(f); dirs.addView(row); row=row(); row.addView(l); row.addView(r); dirs.addView(row); row=row(); row.addView(b); dirs.addView(row); dirs.addView(s);
-        hold(f,"F"); hold(b,"B"); hold(l,"L"); hold(r,"R"); s.setOnClickListener(v->send("S")); setContentView(root);
+
+    private GradientDrawable shape(int color, int stroke) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(20);
+        d.setStroke(2, stroke);
+        return d;
     }
-    private TextView label(String text){ TextView t=new TextView(this); t.setText(text); t.setTextColor(Color.WHITE); t.setGravity(Gravity.CENTER); return t; }
-    private LinearLayout row(){ LinearLayout r=new LinearLayout(this); r.setGravity(Gravity.CENTER); return r; }
-    private View blank(int w){ View v=new View(this); v.setLayoutParams(new LinearLayout.LayoutParams(w,58)); return v; }
-    private Button btn(String text,int width,int color){ Button b=new Button(this); b.setText(text); b.setTextColor(Color.WHITE); b.setTextSize(13); b.setAllCaps(false); b.setTypeface(null,Typeface.BOLD); b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(color)); b.setPadding(4,2,4,2); b.setLayoutParams(new LinearLayout.LayoutParams(width,58)); return b; }
-    private void hold(Button b,String c){ b.setOnTouchListener((v,e)->{ if(e.getAction()==MotionEvent.ACTION_DOWN){send(c);return true;} if(e.getAction()==MotionEvent.ACTION_UP||e.getAction()==MotionEvent.ACTION_CANCEL){send("S");return true;} return true; }); }
-    private boolean permission(){ if(Build.VERSION.SDK_INT>=31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},REQUEST_BT);return false;} return true; }
-    private void refresh(){ if(adapter==null){status.setText("Este teléfono no admite Bluetooth");return;} if(!permission())return; if(!adapter.isEnabled()){status.setText("Activa Bluetooth en Ajustes");return;} paired.clear(); ArrayList<String> names=new ArrayList<>(); try{ Set<BluetoothDevice> ds=adapter.getBondedDevices(); for(BluetoothDevice d:ds){paired.add(d);names.add((d.getName()==null?"Bluetooth":d.getName())+" ("+d.getAddress()+")");} }catch(SecurityException e){status.setText("Permiso Bluetooth requerido");} if(names.isEmpty())names.add("No hay dispositivos emparejados"); spinner.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,names)); status.setText(paired.isEmpty()?"Empareja el HC-05 en Ajustes Bluetooth":"Elige HC-05 y pulsa CONECTAR"); }
-    private void connect(){ if(!permission())return; if(adapter==null||!adapter.isEnabled()){status.setText("Activa Bluetooth primero");return;} int i=spinner.getSelectedItemPosition(); if(i<0||i>=paired.size()){status.setText("No hay dispositivo seleccionado");return;} BluetoothDevice d=paired.get(i); status.setText("Conectando..."); new Thread(()->{ BluetoothSocket candidate=null; try{candidate=d.createRfcommSocketToServiceRecord(SPP);adapter.cancelDiscovery();candidate.connect();socket=candidate;output=socket.getOutputStream();connected=true;runOnUiThread(()->status.setText("Conectado: "+d.getAddress()));}catch(IOException|SecurityException e){connected=false;if(candidate!=null)try{candidate.close();}catch(IOException ignored){}runOnUiThread(()->status.setText("No conectó: revisa HC-05 y emparejamiento"));}}).start(); }
-    private void send(String c){ if(!connected||output==null)return; try{output.write(c.getBytes("US-ASCII"));output.flush();}catch(IOException e){connected=false;runOnUiThread(()->status.setText("Conexión perdida"));} }
-    @Override public void onRequestPermissionsResult(int req,String[] p,int[] g){super.onRequestPermissionsResult(req,p,g);if(req==REQUEST_BT&&g.length>0&&g[0]==PackageManager.PERMISSION_GRANTED)refresh();else if(req==REQUEST_BT)status.setText("Permite Bluetooth para conectar");}
-    @Override protected void onDestroy(){super.onDestroy();connected=false;try{if(socket!=null)socket.close();}catch(IOException ignored){}}
+
+    private TextView text(String value, int size, int color) {
+        TextView t = new TextView(this);
+        t.setText(value);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        t.setGravity(Gravity.CENTER);
+        t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        return t;
+    }
+
+    private LinearLayout column() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        return l;
+    }
+
+    private LinearLayout row() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.HORIZONTAL);
+        l.setGravity(Gravity.CENTER);
+        return l;
+    }
+
+    private void buildUI() {
+        LinearLayout root = column();
+        root.setPadding(12, 8, 12, 8);
+        root.setBackgroundColor(BG);
+
+        // Encabezado
+        LinearLayout header = row();
+        header.setBackground(shape(PANEL, 0xff12354a));
+
+        TextView title = text("⚡ BT CAR CONTROL", 23, Color.WHITE);
+        header.addView(title, new LinearLayout.LayoutParams(0, 55, 1));
+
+        status = text("● DESCONECTADO", 14, RED);
+        header.addView(status,
+            new LinearLayout.LayoutParams(175, 55));
+
+        root.addView(header,
+            new LinearLayout.LayoutParams(-1, 55));
+
+        // Conexión Bluetooth
+        LinearLayout connectRow = row();
+        connectRow.setPadding(0, 7, 0, 7);
+
+        devices = new Spinner(this);
+        devices.setBackground(shape(PANEL, BLUE));
+        connectRow.addView(devices,
+            new LinearLayout.LayoutParams(0, 48, 1));
+
+        Button refresh = button("↻", BLUE);
+        connectRow.addView(refresh,
+            new LinearLayout.LayoutParams(55, 48));
+        refresh.setOnClickListener(v -> refreshDevices());
+
+        Button connect = button("CONECTAR", GREEN);
+        connectRow.addView(connect,
+            new LinearLayout.LayoutParams(125, 48));
+        connect.setOnClickListener(v -> connectBluetooth());
+
+        root.addView(connectRow,
+            new LinearLayout.LayoutParams(-1, 62));
+
+        // Panel principal
+        LinearLayout area = row();
+        root.addView(area,
+            new LinearLayout.LayoutParams(-1, 0, 1));
+
+        // Joystick a la izquierda
+        LinearLayout leftPanel = column();
+        leftPanel.setGravity(Gravity.CENTER);
+        leftPanel.setPadding(8, 8, 8, 8);
+        leftPanel.setBackground(shape(PANEL, 0xff12354a));
+
+        area.addView(leftPanel,
+            new LinearLayout.LayoutParams(0, -1, 1));
+
+        leftPanel.addView(text("JOYSTICK", 19, BLUE),
+            new LinearLayout.LayoutParams(-1, 35));
+
+        Joystick joystick = new Joystick();
+        LinearLayout.LayoutParams jp =
+            new LinearLayout.LayoutParams(-1, 0, 1);
+        jp.setMargins(5, 5, 5, 5);
+        leftPanel.addView(joystick, jp);
+
+        // Botones a la derecha
+        LinearLayout rightPanel = column();
+        rightPanel.setGravity(Gravity.CENTER);
+        rightPanel.setPadding(8, 8, 8, 8);
+        rightPanel.setBackground(shape(PANEL, 0xff12354a));
+
+        LinearLayout.LayoutParams rightParams =
+            new LinearLayout.LayoutParams(0, -1, 1);
+        rightParams.setMargins(8, 0, 0, 0);
+        area.addView(rightPanel, rightParams);
+
+        rightPanel.addView(text("CONTROLES", 19, BLUE),
+            new LinearLayout.LayoutParams(-1, 35));
+
+        LinearLayout r1 = row();
+        LinearLayout r2 = row();
+
+        LinearLayout.LayoutParams cell1 =
+            new LinearLayout.LayoutParams(0, -1, 1);
+        cell1.setMargins(4, 4, 4, 4);
+
+        LinearLayout.LayoutParams cell2 =
+            new LinearLayout.LayoutParams(0, -1, 1);
+        cell2.setMargins(4, 4, 4, 4);
+
+        r1.addView(direction("▲\nADELANTE", "F", GREEN), cell1);
+        r1.addView(direction("▶\nDERECHA", "R", RED), cell2);
+
+        LinearLayout.LayoutParams cell3 =
+            new LinearLayout.LayoutParams(0, -1, 1);
+        cell3.setMargins(4, 4, 4, 4);
+
+        LinearLayout.LayoutParams cell4 =
+            new LinearLayout.LayoutParams(0, -1, 1);
+        cell4.setMargins(4, 4, 4, 4);
+
+        r2.addView(direction("◀\nIZQUIERDA", "L", BLUE), cell3);
+        r2.addView(direction("▼\nATRÁS", "B", YELLOW), cell4);
+
+        rightPanel.addView(r1,
+            new LinearLayout.LayoutParams(-1, 0, 1));
+        rightPanel.addView(r2,
+            new LinearLayout.LayoutParams(-1, 0, 1));
+
+        Button stop = button("■  STOP / DETENER", RED);
+        LinearLayout.LayoutParams stopParams =
+            new LinearLayout.LayoutParams(-1, 52);
+        stopParams.setMargins(4, 6, 4, 2);
+        rightPanel.addView(stop, stopParams);
+        stop.setOnClickListener(v -> send("S"));
+
+        // Barra inferior
+        lastCommand = text("ÚLTIMO COMANDO: —", 14, GREEN);
+        root.addView(lastCommand,
+            new LinearLayout.LayoutParams(-1, 34));
+
+        setContentView(root);
+    }
+
+    private Button button(String label, int color) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextSize(13);
+        b.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        b.setTextColor(color);
+        b.setAllCaps(false);
+        b.setBackground(shape(0xff101c27, color));
+        b.setPadding(4, 2, 4, 2);
+        return b;
+    }
+
+    private Button direction(String label, String command, int color) {
+        Button b = button(label, color);
+        b.setTextSize(15);
+        b.setBackground(shape(0xff07151e, color));
+
+        b.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                send(command);
+                return true;
+            }
+
+            if (e.getAction() == MotionEvent.ACTION_UP ||
+                e.getAction() == MotionEvent.ACTION_CANCEL) {
+                send("S");
+                return true;
+            }
+
+            return true;
+        });
+
+        return b;
+    }
+
+    // Joystick circular con movimiento táctil
+    private class Joystick extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float cx, cy, radius, knobX, knobY;
+        private boolean moved = false;
+        private String current = "";
+
+        Joystick() {
+            super(MainActivity.this);
+            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            super.onDraw(c);
+
+            cx = getWidth() / 2f;
+            cy = getHeight() / 2f;
+            radius = Math.max(20,
+                Math.min(getWidth(), getHeight()) * 0.42f);
+
+            if (!moved) {
+                knobX = cx;
+                knobY = cy;
+            }
+
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(5);
+            p.setColor(BLUE);
+            p.setShadowLayer(12, 0, 0, BLUE);
+            c.drawCircle(cx, cy, radius, p);
+            p.clearShadowLayer();
+
+            p.setStrokeWidth(2);
+            p.setColor(0xff24506a);
+            c.drawCircle(cx, cy, radius * 0.68f, p);
+            c.drawCircle(cx, cy, radius * 0.35f, p);
+
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xff122d43);
+            c.drawCircle(knobX, knobY, radius * 0.30f, p);
+
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(4);
+            p.setColor(BLUE);
+            p.setShadowLayer(10, 0, 0, BLUE);
+            c.drawCircle(knobX, knobY, radius * 0.30f, p);
+            p.clearShadowLayer();
+
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(BLUE);
+            p.setTextSize(24);
+            p.setTextAlign(Paint.Align.CENTER);
+
+            c.drawText("▲", cx, cy - radius * 0.72f, p);
+            c.drawText("▼", cx, cy + radius * 0.84f, p);
+            c.drawText("◀", cx - radius * 0.72f, cy + 8, p);
+            c.drawText("▶", cx + radius * 0.72f, cy + 8, p);
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            float dx = e.getX() - cx;
+            float dy = e.getY() - cy;
+
+            if (e.getAction() == MotionEvent.ACTION_DOWN ||
+                e.getAction() == MotionEvent.ACTION_MOVE) {
+
+                float distance =
+                    (float) Math.sqrt(dx * dx + dy * dy);
+
+                if (distance > radius * 0.65f) {
+                    float scale = radius * 0.65f / distance;
+                    dx *= scale;
+                    dy *= scale;
+                }
+
+                knobX = cx + dx;
+                knobY = cy + dy;
+                moved = true;
+                invalidate();
+
+                String cmd = "";
+
+                if (Math.sqrt(dx * dx + dy * dy) >
+                    radius * 0.18f) {
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        cmd = dx > 0 ? "R" : "L";
+                    } else {
+                        cmd = dy > 0 ? "B" : "F";
+                    }
+                }
+
+                if (!cmd.equals(current)) {
+                    current = cmd;
+                    send(cmd.isEmpty() ? "S" : cmd);
+                }
+
+                return true;
+            }
+
+            if (e.getAction() == MotionEvent.ACTION_UP ||
+                e.getAction() == MotionEvent.ACTION_CANCEL) {
+                moved = false;
+                current = "";
+                invalidate();
+                send("S");
+                return true;
+            }
+
+            return true;
+        }
+    }
+
+    private boolean permission() {
+        if (Build.VERSION.SDK_INT >= 31 &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED) {
+
+            requestPermissions(
+                new String[]{Manifest.permission.BLUETOOTH_CONNECT},
+                REQUEST_BT
+            );
+            return false;
+        }
+
+        return true;
+    }
+
+    private void refreshDevices() {
+        if (adapter == null) {
+            status.setText("BLUETOOTH NO DISPONIBLE");
+            return;
+        }
+
+        if (!permission()) return;
+
+        if (!adapter.isEnabled()) {
+            status.setText("ACTIVA BLUETOOTH");
+            return;
+        }
+
+        paired.clear();
+        ArrayList<String> names = new ArrayList<>();
+
+        try {
+            Set<BluetoothDevice> list = adapter.getBondedDevices();
+
+            for (BluetoothDevice d : list) {
+                paired.add(d);
+                String name = d.getName();
+
+                names.add(
+                    (name == null ? "Bluetooth" : name)
+                    + " (" + d.getAddress() + ")"
+                );
+            }
+        } catch (SecurityException ex) {
+            status.setText("PERMISO BLUETOOTH REQUERIDO");
+        }
+
+        if (names.isEmpty()) {
+            names.add("Empareja el HC-05 primero");
+        }
+
+        devices.setAdapter(new ArrayAdapter<String>(
+            this,
+            android.R.layout.simple_spinner_dropdown_item,
+            names
+        ));
+
+        status.setText(paired.isEmpty()
+            ? "● SIN DISPOSITIVOS"
+            : "● LISTO PARA CONECTAR");
+    }
+
+    private void connectBluetooth() {
+        if (!permission()) return;
+
+        if (adapter == null || !adapter.isEnabled()) {
+            status.setText("ACTIVA BLUETOOTH");
+            return;
+        }
+
+        int i = devices.getSelectedItemPosition();
+
+        if (i < 0 || i >= paired.size()) {
+            status.setText("EMPAREJA EL HC-05");
+            return;
+        }
+
+        BluetoothDevice d = paired.get(i);
+        status.setText("CONECTANDO...");
+
+        new Thread(() -> {
+            BluetoothSocket candidate = null;
+
+            try {
+                candidate =
+                    d.createRfcommSocketToServiceRecord(SPP);
+
+                adapter.cancelDiscovery();
+                candidate.connect();
+
+                socket = candidate;
+                output = socket.getOutputStream();
+                connected = true;
+
+                runOnUiThread(() ->
+                    status.setText("● CONECTADO")
+                );
+
+            } catch (IOException | SecurityException ex) {
+                connected = false;
+
+                if (candidate != null) {
+                    try {
+                        candidate.close();
+                    } catch (IOException ignored) {}
+                }
+
+                runOnUiThread(() ->
+                    status.setText("● ERROR DE CONEXIÓN")
+                );
+            }
+        }).start();
+    }
+
+    private void send(String command) {
+        runOnUiThread(() ->
+            lastCommand.setText("ÚLTIMO COMANDO: " + command)
+        );
+
+        if (!connected || output == null) return;
+
+        try {
+            output.write(command.getBytes("US-ASCII"));
+            output.flush();
+
+        } catch (IOException ex) {
+            connected = false;
+            runOnUiThread(() ->
+                status.setText("● CONEXIÓN PERDIDA")
+            );
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(
+        int requestCode, String[] permissions, int[] grantResults
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode, permissions, grantResults
+        );
+
+        if (requestCode == REQUEST_BT &&
+            grantResults.length > 0 &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            refreshDevices();
+        } else if (requestCode == REQUEST_BT) {
+            status.setText("PERMITE EL USO DE BLUETOOTH");
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        connected = false;
+
+        try {
+            if (socket != null) socket.close();
+        } catch (IOException ignored) {}
+
+        super.onDestroy();
+    }
 }

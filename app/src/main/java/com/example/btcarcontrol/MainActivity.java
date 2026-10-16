@@ -465,9 +465,17 @@ public class MainActivity extends Activity {
                     } catch (IOException ignored) {}
                 }
 
-                runOnUiThread(() ->
-                    status.setText("● ERROR DE CONEXIÓN")
-                );
+                android.util.Log.e("HC05", "Bluetooth connection failed", ex);
+                
+                runOnUiThread(() -> {
+                    status.setText("ERROR DE CONEXIÓN");
+                
+                    Toast.makeText(
+                        MainActivity.this,
+                        String.valueOf(ex.getMessage()),
+                        Toast.LENGTH_LONG
+                    ).show();
+                });
             }
         }).start();
     }

@@ -1,0 +1,13 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.ejemplo.btcarcontrol'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.ejemplo.btcarcontrol'
+        minSdk 23
+        targetSdk 32
+        versionCode 1
+        versionName '1.0'
+    }
+}
